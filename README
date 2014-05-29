@@ -1,0 +1,5 @@
+Git repository for the MiningMaven subproject, included in the Diversify project (https://github.com/DIVERSIFY-project)
+
+This program grabs all .pom from the Maven repository (roughly 1700000 artifacts) and outputs files containing dependencies and usage data.
+
+Contact: andre.elie@inria.fr
