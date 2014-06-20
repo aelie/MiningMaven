@@ -1,16 +1,19 @@
 package fr.inria.diversify;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
+import com.sun.jersey.api.client.Client;
+import com.sun.jersey.api.client.UniformInterfaceException;
 import fr.inria.diversify.dependencyGraph.MavenDependencyGraph;
-import fr.inria.diversify.dependencyGraph.GraphBuilder;
 import fr.inria.diversify.dependencyGraph.MavenDependencyNode;
 import fr.inria.diversify.maven.CentralIndex;
 import fr.inria.diversify.stat.Stat;
-import fr.inria.diversify.stat.Stat2;
 import fr.inria.diversify.util.Log;
 import org.apache.maven.index.ArtifactInfo;
 import org.apache.maven.index.artifact.Gav;
 
 import java.io.*;
+import java.nio.file.Files;
 import java.util.*;
 
 /**
@@ -23,15 +26,15 @@ public class Main {
     public static boolean mergingVersions = true;
     static long totalArtifactsNumber;
 
-    public static void main( String[] args ) throws Exception
-    {
+    public static void main(String[] args) throws Exception {
         Log.set(Log.LEVEL_DEBUG);
 
         Log.info("Building artifact index");
         writeAllArtifactInfo("allArtifact");
+        Log.info("Compacting artifact index");
         compactArtifacts("allArtifact", "allArtifactCompact");
 
-        Log.info("Starting dependency graph build");
+        /*Log.info("Starting dependency graph build");
         MavenDependencyGraph dependencyGraph;
         if(args.length < 1) {
             //Log.info("number of artifact: {}",allArtifact("allArtifact").size());
@@ -74,7 +77,7 @@ public class Main {
         //Log.info("Starting POM files analysis");
         //Stat2 stat = new Stat2(dependencyGraph,"resultCSV/");
         //stat.writeGeneralStat();
-        //Log.info(dependencyGraph.info());
+        //Log.info(dependencyGraph.info());*/
     }
 
     public static void writeAllArtifactInfo(String fileName) {
@@ -88,15 +91,23 @@ public class Main {
             FileWriter fw = new FileWriter(fileName);
             BufferedWriter bw = new BufferedWriter(fw);
             Gav gav;
-            for(int index = 0; index < subListsNumber; index++) {
-                partialArtifact = app.partialArtifactInfo((int)(((long)(totalArtifactsNumber * index)) / subListsNumber),
-                        Math.min((int)(((long)(totalArtifactsNumber * (index + 1))) / subListsNumber), (int)totalArtifactsNumber));
+            String groupId;
+            String artifactId;
+            String version;
+            long timestamp;
+            for (int index = 0; index < subListsNumber; index++) {
+                partialArtifact = app.partialArtifactInfo((int) (((long) (totalArtifactsNumber * index)) / subListsNumber),
+                        Math.min((int) (((long) (totalArtifactsNumber * (index + 1))) / subListsNumber), (int) totalArtifactsNumber));
                 //Log.debug("Storing artifacts from index {} to {}", (totalArtifactsNumber * index) / subListsNumber, Math.min((totalArtifactsNumber * (index + 1)) / subListsNumber, totalArtifactsNumber));
                 String text = "";
                 for (ArtifactInfo ai : partialArtifact) {
                     try {
                         gav = ai.calculateGav();
-                        text += gav.getGroupId() + ":" + gav.getArtifactId() + ":" + gav.getVersion() + System.getProperty("line.separator");
+                        timestamp = ai.lastModified;
+                        groupId = gav.getGroupId();
+                        artifactId = gav.getArtifactId();
+                        version = gav.getVersion();
+                        text += groupId + ":" + artifactId + ":" + version + ":" + timestamp + System.getProperty("line.separator");
                         count++;
                     } catch (Exception ex) {
                         error++;
@@ -116,16 +127,30 @@ public class Main {
     public static void compactArtifacts(String artifactFileName, String outputFileName) throws IOException {
         FileReader fr = new FileReader(artifactFileName);
         BufferedReader br = new BufferedReader(fr);
-        Set<String> artifacts = new TreeSet<String>();
+        Map<String, Long> timestampByArtifact = new LinkedHashMap<String, Long>();
         String line;
-        while((line = br.readLine()) != null) {
-            artifacts.add(line.split(":")[0] + ":" + line.split(":")[1]);
+        String groupArtifact = "";
+        long timestamp = 0;
+        while ((line = br.readLine()) != null) {
+            try {
+                groupArtifact = line.split(":")[0] + ":" + line.split(":")[1];
+                timestamp = Long.parseLong(line.split(":")[3]);
+                if (timestampByArtifact.keySet().contains(groupArtifact)) {
+                    if (timestamp > timestampByArtifact.get(groupArtifact)) {
+                        timestampByArtifact.put(groupArtifact, timestamp);
+                    }
+                } else {
+                    timestampByArtifact.put(groupArtifact, timestamp);
+                }
+            } catch (NumberFormatException nfe) {
+                //System.err.println(line);
+            }
         }
         br.close();
         FileWriter fw = new FileWriter(outputFileName);
         BufferedWriter bw = new BufferedWriter(fw);
-        for(String artifact : artifacts) {
-            bw.write(artifact + System.getProperty("line.separator"));
+        for (String artifact : timestampByArtifact.keySet()) {
+            bw.write(artifact + ":" + timestampByArtifact.get(artifact) + System.getProperty("line.separator"));
         }
         bw.close();
     }
@@ -139,12 +164,12 @@ public class Main {
         String line;
         String[] splitLine;
         int counter = 0;
-        while((line = br.readLine()) != null) {
+        while ((line = br.readLine()) != null) {
             splitLine = line.split(",");
             servicesById.put(splitLine[0], "s" + counter);
             counter++;
-            for(int i = 2; i < splitLine.length; i++) {
-                if(!servicesById.containsKey(splitLine[i])) {
+            for (int i = 2; i < splitLine.length; i++) {
+                if (!servicesById.containsKey(splitLine[i])) {
                     servicesById.put(splitLine[i], "s" + counter);
                     counter++;
                 }
@@ -156,14 +181,14 @@ public class Main {
         //usages
         fr = new FileReader(usageTableFileName);
         br = new BufferedReader(fr);
-        while((line = br.readLine()) != null) {
+        while ((line = br.readLine()) != null) {
             splitLine = line.split(",");
-            if(!servicesById.containsKey(splitLine[0])) {
+            if (!servicesById.containsKey(splitLine[0])) {
                 servicesById.put(splitLine[0], "s" + counter);
                 counter++;
             }
-            for(int i = 2; i < splitLine.length; i++) {
-                if(!servicesById.containsKey(splitLine[i])) {
+            for (int i = 2; i < splitLine.length; i++) {
+                if (!servicesById.containsKey(splitLine[i])) {
                     servicesById.put(splitLine[i], "s" + counter);
                     counter++;
                 }
@@ -176,10 +201,10 @@ public class Main {
         br = new BufferedReader(fr);
         FileWriter fw = new FileWriter(outputDependencyFileName);
         BufferedWriter bw = new BufferedWriter(fw);
-        while((line = br.readLine()) != null) {
+        while ((line = br.readLine()) != null) {
             splitLine = line.split(",");
             bw.write(servicesById.get(splitLine[0]) + "," + splitLine[1] + ",");
-            for(int i = 2; i < splitLine.length; i++) {
+            for (int i = 2; i < splitLine.length; i++) {
                 bw.write(servicesById.get(splitLine[i]) + ",");
             }
             bw.write(System.getProperty("line.separator"));
@@ -189,10 +214,10 @@ public class Main {
         br = new BufferedReader(fr);
         fw = new FileWriter(outputUsageFileName);
         bw = new BufferedWriter(fw);
-        while((line = br.readLine()) != null) {
+        while ((line = br.readLine()) != null) {
             splitLine = line.split(",");
             bw.write(servicesById.get(splitLine[0]) + "," + splitLine[1] + ",");
-            for(int i = 2; i < splitLine.length; i++) {
+            for (int i = 2; i < splitLine.length; i++) {
                 bw.write(servicesById.get(splitLine[i]) + ",");
             }
             bw.write(System.getProperty("line.separator"));
@@ -210,40 +235,40 @@ public class Main {
 
     public static List<String> allArtifact(String fileName) throws IOException {
         List<String> artifacts = new ArrayList<String>();
-        File f  = new File(fileName);
+        File f = new File(fileName);
         BufferedReader br = new BufferedReader(new FileReader(f));
         String line = br.readLine();
         while (line != null) {
             artifacts.add(line);
             line = br.readLine();
         }
-        return  artifacts;
+        return artifacts;
     }
 
-   public static void writeStat(MavenDependencyGraph g) throws IOException {
-       Stat stat = new Stat(g);
+    public static void writeStat(MavenDependencyGraph g) throws IOException {
+        Stat stat = new Stat(g);
 
-       stat.writeGeneralStat("stat");
-       stat.writeDependencyStat("org.jvnet.hudson.main", "hudson-core");
-       stat.writeDependencyStat("org.mortbay.jetty", "jsp-2.0");
-       stat.writeDependencyStat("org.mule", "mule-core");
-       stat.writeDependencyStat("org.ow2.jonas", "jonas-services-api");
-       stat.writeDependencyStat("dom4j", "dom4j");
-       stat.writeDependencyStat("commons-logging", "commons-logging");
-   }
+        stat.writeGeneralStat("stat");
+        stat.writeDependencyStat("org.jvnet.hudson.main", "hudson-core");
+        stat.writeDependencyStat("org.mortbay.jetty", "jsp-2.0");
+        stat.writeDependencyStat("org.mule", "mule-core");
+        stat.writeDependencyStat("org.ow2.jonas", "jonas-services-api");
+        stat.writeDependencyStat("dom4j", "dom4j");
+        stat.writeDependencyStat("commons-logging", "commons-logging");
+    }
 
-    public  static void test(MavenDependencyGraph g) throws IOException {
+    public static void test(MavenDependencyGraph g) throws IOException {
         Map<String, Set<MavenDependencyNode>> tmp = g.dependencyUsedDistribution("org.objectweb.fractal", "fractal-api", false);
 
         HashSet<String> tmp2 = new HashSet<String>();
-        for(String key : tmp.keySet())
+        for (String key : tmp.keySet())
             for (MavenDependencyNode node : tmp.get(key))
                 tmp2.add(node.toString());
 
         FileWriter fw = new FileWriter("test");
         BufferedWriter bw = new BufferedWriter(fw);
-        for(String s: tmp2)
-            fw.write(s+"\n");
+        for (String s : tmp2)
+            fw.write(s + "\n");
         bw.close();
     }
 }
