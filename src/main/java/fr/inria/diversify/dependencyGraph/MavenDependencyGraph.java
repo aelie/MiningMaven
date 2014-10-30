@@ -23,7 +23,7 @@ public class MavenDependencyGraph {
     protected static Map<String,Integer> stringId;
     protected static Integer count = 0;
     public MavenDependencyGraph() {
-        nodes = new HashMap<String, MavenDependencyNode>();
+        nodes = new TreeMap<String, MavenDependencyNode>();
     }
 
     public void addGraph(JSONArray array) throws JSONException {
@@ -227,6 +227,30 @@ public class MavenDependencyGraph {
         return map;
     }
 
+    @Override
+    public boolean equals(Object o) {
+        for(MavenDependencyNode node : nodes.values()) {
+            boolean found = false;
+            for(MavenDependencyNode otherNode : ((MavenDependencyGraph)o).getNodes().values()) {
+                if(otherNode.toString().equalsIgnoreCase(node.toString())) {
+                    found = true;
+                    break;
+                }
+            }
+            if(!found) {
+                System.out.println(node);
+                return false;
+            } else {
+                System.out.print("+");
+            }
+        }
+        return true;
+    }
+
+    @Override
+    public String toString() {
+        return ""+nodes;
+    }
 
     public Map<String, MavenDependencyNode> getNodes() {
         return nodes;

@@ -1,19 +1,18 @@
 package fr.inria.diversify;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
-import com.sun.jersey.api.client.Client;
-import com.sun.jersey.api.client.UniformInterfaceException;
+import fr.inria.diversify.dependencyGraph.GraphBuilder;
 import fr.inria.diversify.dependencyGraph.MavenDependencyGraph;
 import fr.inria.diversify.dependencyGraph.MavenDependencyNode;
 import fr.inria.diversify.maven.CentralIndex;
 import fr.inria.diversify.stat.Stat;
+import fr.inria.diversify.stat.Stat2;
 import fr.inria.diversify.util.Log;
 import org.apache.maven.index.ArtifactInfo;
 import org.apache.maven.index.artifact.Gav;
 
 import java.io.*;
-import java.nio.file.Files;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
 import java.util.*;
 
 /**
@@ -30,41 +29,46 @@ public class Main {
         Log.set(Log.LEVEL_DEBUG);
 
         Log.info("Building artifact index");
-        writeAllArtifactInfo("allArtifact");
+        //writeAllArtifactInfo("allArtifact");
         Log.info("Compacting artifact index");
-        compactArtifacts("allArtifact", "allArtifactCompact");
+        //compactArtifacts("allArtifact_timestamped", "allArtifactCompact");
 
-        /*Log.info("Starting dependency graph build");
+        Log.info("Starting dependency graph build");
         MavenDependencyGraph dependencyGraph;
-        if(args.length < 1) {
+        if (args.length < 1) {
             //Log.info("number of artifact: {}",allArtifact("allArtifact").size());
             //dependencyGraph = (new GraphBuilder()).buildGraphDependency(allArtifact("allArtifact"));
             //dependencyGraph.toJSONObjectIn("mavenGraph_" + System.currentTimeMillis() + ".json");
             int subListsNumber = 10;
-            for(int index = 0; index < subListsNumber; index++) {
-                dependencyGraph = (new GraphBuilder()).buildGraphDependency(allArtifact("allArtifact").subList((int)(((long)(totalArtifactsNumber * index)) / subListsNumber), Math.min((int)(((long)(totalArtifactsNumber * (index + 1))) / subListsNumber), (int)totalArtifactsNumber)));
+            for (int index = 0; index < subListsNumber; index++) {
+                dependencyGraph = (new GraphBuilder()).buildGraphDependency(allArtifact("allArtifact")
+                        .subList(
+                                (int) (((long) (totalArtifactsNumber * index)) / subListsNumber),
+                                Math.min(
+                                        (int) (((long) (totalArtifactsNumber * (index + 1))) / subListsNumber),
+                                        (int) totalArtifactsNumber)));
                 dependencyGraph.toJSONObjectIn("mavenGraph_" + System.currentTimeMillis() + ".json");
                 Log.info("Starting POM files analysis");
-                Stat2 stat2 = new Stat2(dependencyGraph,"resultCSV/");
+                Stat2 stat2 = new Stat2(dependencyGraph, "resultCSV/");
                 stat2.writeGeneralStat(String.valueOf(index));
                 Log.info(dependencyGraph.info());
             }
-        }
-        else if(args.length < 2) {
+        } else if (args.length < 2) {
             dependencyGraph = (new GraphBuilder()).forJSONFiles(args[0]);
             Log.info("Starting POM files analysis");
-            Stat2 stat = new Stat2(dependencyGraph,"resultCSV/");
+            Stat2 stat = new Stat2(dependencyGraph, "resultCSV/");
             stat.writeGeneralStat("full");
             Log.info(dependencyGraph.info());
-        }
-        else {
+        } else {
             int bMin = Integer.parseInt(args[0]);
             int bMax = Integer.parseInt(args[1]);
-            Log.info("number of artifact: {}",allArtifact("allArtifact").size());
-            dependencyGraph = (new GraphBuilder()).buildGraphDependency(allArtifact("allArtifact").subList(bMin, bMax));
+            List<String> allArtifacts = allArtifact("allArtifact");
+            Log.info("number of artifact: {}", allArtifacts.size());
+            dependencyGraph = (new GraphBuilder()).buildGraphDependency(allArtifacts.subList(bMin, bMax));
+            System.out.println(allArtifacts.subList(bMin, bMax));
             dependencyGraph.toJSONObjectIn("mavenGraph_" + System.currentTimeMillis() + ".json");
             Log.info("Starting POM files analysis");
-            Stat2 stat = new Stat2(dependencyGraph,"resultCSV/");
+            Stat2 stat = new Stat2(dependencyGraph, "resultCSV/");
             stat.writeGeneralStat(bMin + "-" + bMax);
             Log.info(dependencyGraph.info());
         }
@@ -88,26 +92,28 @@ public class Main {
             int subListsNumber = 100000;
             int count = 0, error = 0;
             List<ArtifactInfo> partialArtifact;
-            FileWriter fw = new FileWriter(fileName);
-            BufferedWriter bw = new BufferedWriter(fw);
+            BufferedWriter bw = new BufferedWriter(new FileWriter(fileName));
+            BufferedWriter bw_ts = new BufferedWriter(new FileWriter(fileName + "_timestamped"));
             Gav gav;
             String groupId;
             String artifactId;
             String version;
-            long timestamp;
+            String formattedTime;
             for (int index = 0; index < subListsNumber; index++) {
                 partialArtifact = app.partialArtifactInfo((int) (((long) (totalArtifactsNumber * index)) / subListsNumber),
                         Math.min((int) (((long) (totalArtifactsNumber * (index + 1))) / subListsNumber), (int) totalArtifactsNumber));
                 //Log.debug("Storing artifacts from index {} to {}", (totalArtifactsNumber * index) / subListsNumber, Math.min((totalArtifactsNumber * (index + 1)) / subListsNumber, totalArtifactsNumber));
                 String text = "";
+                String text_ts = "";
                 for (ArtifactInfo ai : partialArtifact) {
                     try {
                         gav = ai.calculateGav();
-                        timestamp = ai.lastModified;
+                        formattedTime = timestampToString(ai.lastModified);
                         groupId = gav.getGroupId();
                         artifactId = gav.getArtifactId();
                         version = gav.getVersion();
-                        text += groupId + ":" + artifactId + ":" + version + ":" + timestamp + System.getProperty("line.separator");
+                        text += groupId + ":" + artifactId + ":" + version + System.getProperty("line.separator");
+                        text_ts += groupId + ":" + artifactId + ":" + version + ":" + formattedTime + System.getProperty("line.separator");
                         count++;
                     } catch (Exception ex) {
                         error++;
@@ -115,8 +121,11 @@ public class Main {
                 }
                 bw.write(text);
                 bw.flush();
+                bw_ts.write(text_ts);
+                bw_ts.flush();
             }
             bw.close();
+            bw_ts.close();
 
             Log.info("count: {}, error: {}", count, error);
         } catch (Exception ex) {
@@ -125,34 +134,51 @@ public class Main {
     }
 
     public static void compactArtifacts(String artifactFileName, String outputFileName) throws IOException {
-        FileReader fr = new FileReader(artifactFileName);
-        BufferedReader br = new BufferedReader(fr);
+        BufferedReader br = new BufferedReader(new FileReader(artifactFileName));
         Map<String, Long> timestampByArtifact = new LinkedHashMap<String, Long>();
         String line;
-        String groupArtifact = "";
-        long timestamp = 0;
+        String[] splitLine;
+        String groupArtifact;
+        Calendar cal = Calendar.getInstance();
+        SimpleDateFormat sdf = new SimpleDateFormat("dd'-'MM'-'yyyy'T'HH'h'mm'm'ss's'");
+        int counter = 1;
         while ((line = br.readLine()) != null) {
             try {
-                groupArtifact = line.split(":")[0] + ":" + line.split(":")[1];
-                timestamp = Long.parseLong(line.split(":")[3]);
+                splitLine = line.split(":");
+                groupArtifact = line.substring(0, line.length() - splitLine[splitLine.length - 1].length());
+                cal.setTime(sdf.parse(splitLine[splitLine.length - 1]));
                 if (timestampByArtifact.keySet().contains(groupArtifact)) {
-                    if (timestamp > timestampByArtifact.get(groupArtifact)) {
-                        timestampByArtifact.put(groupArtifact, timestamp);
+                    if (cal.getTime().getTime() > timestampByArtifact.get(groupArtifact)) {
+                        timestampByArtifact.put(groupArtifact, cal.getTime().getTime());
                     }
                 } else {
-                    timestampByArtifact.put(groupArtifact, timestamp);
+                    timestampByArtifact.put(groupArtifact, cal.getTime().getTime());
                 }
             } catch (NumberFormatException nfe) {
                 //System.err.println(line);
+            } catch (ParseException e) {
+                System.err.println(line + "/" + counter);
+                e.printStackTrace();
             }
+            counter++;
         }
         br.close();
-        FileWriter fw = new FileWriter(outputFileName);
-        BufferedWriter bw = new BufferedWriter(fw);
+        BufferedWriter bw = new BufferedWriter(new FileWriter(outputFileName));
         for (String artifact : timestampByArtifact.keySet()) {
-            bw.write(artifact + ":" + timestampByArtifact.get(artifact) + System.getProperty("line.separator"));
+            bw.write(artifact + timestampToString(timestampByArtifact.get(artifact)) + System.getProperty("line.separator"));
         }
         bw.close();
+    }
+
+    public static String timestampToString(long timestamp) {
+        Calendar cal = Calendar.getInstance();
+        cal.setTimeInMillis(timestamp);
+        return (cal.get(Calendar.DAY_OF_MONTH) <= 9 ? "0" + cal.get(Calendar.DAY_OF_MONTH) : cal.get(Calendar.DAY_OF_MONTH)) + "-" +
+                (cal.get(Calendar.MONTH) + 1 <= 9 ? "0" + (cal.get(Calendar.MONTH) + 1) : (cal.get(Calendar.MONTH) + 1)) + "-" +
+                cal.get(Calendar.YEAR) + "T" +
+                (cal.get(Calendar.HOUR_OF_DAY) <= 9 ? "0" + cal.get(Calendar.HOUR_OF_DAY) : cal.get(Calendar.HOUR_OF_DAY)) + "h" +
+                (cal.get(Calendar.MINUTE) <= 9 ? "0" + cal.get(Calendar.MINUTE) : cal.get(Calendar.MINUTE)) + "m" +
+                (cal.get(Calendar.SECOND) <= 9 ? "0" + cal.get(Calendar.SECOND) : cal.get(Calendar.SECOND)) + "s";
     }
 
     public static void renameArtifacts(String dependencyTableFileName, String usageTableFileName,
@@ -242,6 +268,7 @@ public class Main {
             artifacts.add(line);
             line = br.readLine();
         }
+        br.close();
         return artifacts;
     }
 

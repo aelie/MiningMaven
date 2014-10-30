@@ -2,7 +2,6 @@ package fr.inria.diversify.dependencyGraph;
 
 import fr.inria.diversify.Main;
 import fr.inria.diversify.maven.DependencyTree;
-import fr.inria.diversify.maven.util.LogDependencyGraphDumper;
 import fr.inria.diversify.util.Log;
 import org.eclipse.aether.artifact.Artifact;
 import org.eclipse.aether.graph.DependencyNode;
@@ -24,27 +23,66 @@ import java.util.Set;
  */
 public class GraphBuilder {
 
+    static int i = 0;
+
     public MavenDependencyGraph buildGraphDependency(List<String> artifacts) {
         Set<String> mark = new HashSet<String>();
         MavenDependencyGraph graph = new MavenDependencyGraph();
-        int i = 0;
-        for(String ai : artifacts) {
-            Log.debug("count: " + i);
-            i++;
-            if(!mark.contains(ai)) {
+        i = 0;
+        for (int j = 0; j < artifacts.size() / 100; j++) {
+            artifacts.subList(j * 100, Math.min((j + 1) * 100, artifacts.size()))
+                    .parallelStream()
+                    .map(ai -> {
+                        if (!mark.contains(ai)) {
+                            Log.debug("count: " + i++);
+                            DependencyTree dt = new DependencyTree();
+                            try {
+                                DependencyNode tree = dt.getDependencyTree(ai);
+                                //tree.accept(new LogDependencyGraphDumper());
+                                return tree;
+                            } catch (Exception e) {
+                                e.printStackTrace();
+                                return null;
+                            }
+                        }
+                        return null;
+                    })
+                    .filter(tree -> tree != null)
+                    .sequential()
+                    .forEach(tree -> {
+                        mark.addAll(allChildren(tree));
+                        tree.accept(new BuildGraphVisitor(graph, false));
+                    });
+        }
+        System.out.println(graph.getNodes().size());
+        System.out.println("M" + mark.size());
+        System.out.println("-----------------------------------------------------------");
+        mark.clear();
+        i = 0;
+        MavenDependencyGraph graph2 = new MavenDependencyGraph();
+        for (String ai : artifacts) {
+            if (!mark.contains(ai)) {
+                Log.debug("count: " + i++);
                 DependencyTree dt = new DependencyTree();
                 try {
                     DependencyNode tree = dt.getDependencyTree(ai);
-                    tree.accept(new LogDependencyGraphDumper());
+                    //tree.accept(new LogDependencyGraphDumper());
 //                    tree.accept(new BuildGraphVisitor(graph, true));
-                        tree.accept(new BuildGraphVisitor(graph, false));
-
-                    mark.addAll(allChildren(tree));
+                    synchronized (graph2) {
+                        tree.accept(new BuildGraphVisitor(graph2, false));
+                    }
+                    synchronized (mark) {
+                        mark.addAll(allChildren(tree));
+                    }
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
             }
         }
+        System.out.println("M" + mark.size());
+        //System.out.println(graph2.equals(graph));
+        System.out.println(graph.getNodes().size());
+        System.out.println(graph2.getNodes().size());
         return graph;
     }
 
@@ -52,10 +90,10 @@ public class GraphBuilder {
     public MavenDependencyGraph forJSONFiles(String dir) throws JSONException, IOException {
         File file = new File(dir);
         MavenDependencyGraph dependencyGraph = new MavenDependencyGraph();
-        for (File f : file.listFiles())  {
+        for (File f : file.listFiles()) {
 
-            if(f.getName().endsWith(".json")) {
-                Log.debug("load file: {}",f.getName());
+            if (f.getName().endsWith(".json")) {
+                Log.debug("load file: {}", f.getName());
                 BufferedReader br = new BufferedReader(new FileReader(f));
                 StringBuffer sb = new StringBuffer();
                 String line = br.readLine();
@@ -70,12 +108,12 @@ public class GraphBuilder {
         return dependencyGraph;
     }
 
-    protected Set<String> allChildren(DependencyNode node) {
+    protected static Set<String> allChildren(DependencyNode node) {
 
         Set<String> children = new HashSet<String>();
-        for(DependencyNode n : node.getChildren()) {
+        for (DependencyNode n : node.getChildren()) {
             Artifact a = n.getArtifact();
-            children.add(a.getGroupId()+":"+a.getArtifactId()+(Main.mergingVersions?"":":"+a.getVersion()));
+            children.add(a.getGroupId() + ":" + a.getArtifactId() + (Main.mergingVersions ? "" : ":" + a.getVersion()));
             children.addAll(allChildren(n));
         }
         return children;
