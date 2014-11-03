@@ -9,6 +9,7 @@ import fr.inria.diversify.stat.Stat2;
 import fr.inria.diversify.util.Log;
 import org.apache.maven.index.ArtifactInfo;
 import org.apache.maven.index.artifact.Gav;
+import org.eclipse.aether.graph.Dependency;
 
 import java.io.*;
 import java.text.ParseException;
@@ -27,7 +28,7 @@ public class Main {
     static long totalArtifactsNumber;
 
     public static void main(String[] args) throws Exception {
-        Log.set(Log.LEVEL_DEBUG);
+        Log.set(Log.LEVEL_INFO);
 
         Log.info("Building artifact index");
         //writeAllArtifactInfo("allArtifact");
@@ -65,13 +66,29 @@ public class Main {
             int bMax = Integer.parseInt(args[1]);
             List<String> allArtifacts = allArtifact("allArtifact");
             Log.info("number of artifact: {}", allArtifacts.size());
-            dependencyGraph = (new GraphBuilder()).buildGraphDependency(allArtifacts.subList(bMin, bMax));
+            /*dependencyGraph = (new GraphBuilder()).buildGraphDependency(allArtifacts.subList(bMin, bMax));
             System.out.println(allArtifacts.subList(bMin, bMax));
             dependencyGraph.toJSONObjectIn("mavenGraph_" + System.currentTimeMillis() + ".json");
             Log.info("Starting POM files analysis");
             Stat2 stat = new Stat2(dependencyGraph, "resultCSV/");
             stat.writeGeneralStat(bMin + "-" + bMax);
-            Log.info(dependencyGraph.info());
+            Log.info(dependencyGraph.info());*/
+            PrintWriter pw_R = new PrintWriter("directDependencies.csv", "UTF-8");
+            pw_R.println("Artifact,Dependencies");
+            int counter = 0;
+            for (String artifactAsString : allArtifacts.subList(bMin, bMax)) {
+                Log.info("" + counter++);
+                pw_R.print(artifactAsString + ",");
+                for (Dependency dependency : (new GraphBuilder()).getDirectDependencies(artifactAsString)) {
+                    String dependencyAsString = dependency.getArtifact().getGroupId() + ":"
+                            + dependency.getArtifact().getArtifactId() + ":"
+                            + dependency.getArtifact().getVersion();
+                    pw_R.print(dependencyAsString + ",");
+                }
+                pw_R.println();
+                pw_R.flush();
+            }
+            pw_R.close();
         }
         //renameArtifacts("raw/dependencies.csv", "raw/usages.csv", "raw/renamed_dependencies.csv", "raw/renamed_usages.csv");
 
