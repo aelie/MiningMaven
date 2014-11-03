@@ -95,7 +95,7 @@ public class GraphBuilder {
             if (f.getName().endsWith(".json")) {
                 Log.debug("load file: {}", f.getName());
                 BufferedReader br = new BufferedReader(new FileReader(f));
-                StringBuffer sb = new StringBuffer();
+                StringBuilder sb = new StringBuilder();
                 String line = br.readLine();
                 while (line != null) {
                     sb.append(line);

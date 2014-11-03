@@ -14,6 +14,7 @@ import java.io.*;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * User: Simon
@@ -43,9 +44,9 @@ public class Main {
             for (int index = 0; index < subListsNumber; index++) {
                 dependencyGraph = (new GraphBuilder()).buildGraphDependency(allArtifact("allArtifact")
                         .subList(
-                                (int) (((long) (totalArtifactsNumber * index)) / subListsNumber),
+                                (int) (totalArtifactsNumber * index / subListsNumber),
                                 Math.min(
-                                        (int) (((long) (totalArtifactsNumber * (index + 1))) / subListsNumber),
+                                        (int) (totalArtifactsNumber * (index + 1) / subListsNumber),
                                         (int) totalArtifactsNumber)));
                 dependencyGraph.toJSONObjectIn("mavenGraph_" + System.currentTimeMillis() + ".json");
                 Log.info("Starting POM files analysis");
@@ -100,7 +101,7 @@ public class Main {
             String version;
             String formattedTime;
             for (int index = 0; index < subListsNumber; index++) {
-                partialArtifact = app.partialArtifactInfo((int) (((long) (totalArtifactsNumber * index)) / subListsNumber),
+                partialArtifact = app.partialArtifactInfo((int) (totalArtifactsNumber * index / subListsNumber),
                         Math.min((int) (((long) (totalArtifactsNumber * (index + 1))) / subListsNumber), (int) totalArtifactsNumber));
                 //Log.debug("Storing artifacts from index {} to {}", (totalArtifactsNumber * index) / subListsNumber, Math.min((totalArtifactsNumber * (index + 1)) / subListsNumber, totalArtifactsNumber));
                 String text = "";
@@ -135,7 +136,7 @@ public class Main {
 
     public static void compactArtifacts(String artifactFileName, String outputFileName) throws IOException {
         BufferedReader br = new BufferedReader(new FileReader(artifactFileName));
-        Map<String, Long> timestampByArtifact = new LinkedHashMap<String, Long>();
+        Map<String, Long> timestampByArtifact = new LinkedHashMap<>();
         String line;
         String[] splitLine;
         String groupArtifact;
@@ -186,7 +187,7 @@ public class Main {
         //dependencies
         FileReader fr = new FileReader(dependencyTableFileName);
         BufferedReader br = new BufferedReader(fr);
-        Map<String, String> servicesById = new HashMap<String, String>();
+        Map<String, String> servicesById = new HashMap<>();
         String line;
         String[] splitLine;
         int counter = 0;
@@ -260,7 +261,7 @@ public class Main {
     }
 
     public static List<String> allArtifact(String fileName) throws IOException {
-        List<String> artifacts = new ArrayList<String>();
+        List<String> artifacts = new ArrayList<>();
         File f = new File(fileName);
         BufferedReader br = new BufferedReader(new FileReader(f));
         String line = br.readLine();
@@ -286,16 +287,16 @@ public class Main {
 
     public static void test(MavenDependencyGraph g) throws IOException {
         Map<String, Set<MavenDependencyNode>> tmp = g.dependencyUsedDistribution("org.objectweb.fractal", "fractal-api", false);
-
-        HashSet<String> tmp2 = new HashSet<String>();
+        HashSet<String> tmp2 = new HashSet<>();
         for (String key : tmp.keySet())
-            for (MavenDependencyNode node : tmp.get(key))
-                tmp2.add(node.toString());
-
+            tmp2.addAll(tmp.get(key).stream()
+                    .map(MavenDependencyNode::toString)
+                    .collect(Collectors.toList()));
         FileWriter fw = new FileWriter("test");
         BufferedWriter bw = new BufferedWriter(fw);
-        for (String s : tmp2)
+        for (String s : tmp2) {
             fw.write(s + "\n");
+        }
         bw.close();
     }
 }
