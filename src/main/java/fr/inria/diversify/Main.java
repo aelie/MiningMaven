@@ -9,11 +9,13 @@ import fr.inria.diversify.stat.Stat2;
 import fr.inria.diversify.util.Log;
 import org.apache.maven.index.ArtifactInfo;
 import org.apache.maven.index.artifact.Gav;
+import org.eclipse.aether.graph.Dependency;
 
 import java.io.*;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * User: Simon
@@ -26,7 +28,7 @@ public class Main {
     static long totalArtifactsNumber;
 
     public static void main(String[] args) throws Exception {
-        Log.set(Log.LEVEL_DEBUG);
+        Log.set(Log.LEVEL_INFO);
 
         Log.info("Building artifact index");
         //writeAllArtifactInfo("allArtifact");
@@ -43,9 +45,9 @@ public class Main {
             for (int index = 0; index < subListsNumber; index++) {
                 dependencyGraph = (new GraphBuilder()).buildGraphDependency(allArtifact("allArtifact")
                         .subList(
-                                (int) (((long) (totalArtifactsNumber * index)) / subListsNumber),
+                                (int) (totalArtifactsNumber * index / subListsNumber),
                                 Math.min(
-                                        (int) (((long) (totalArtifactsNumber * (index + 1))) / subListsNumber),
+                                        (int) (totalArtifactsNumber * (index + 1) / subListsNumber),
                                         (int) totalArtifactsNumber)));
                 dependencyGraph.toJSONObjectIn("mavenGraph_" + System.currentTimeMillis() + ".json");
                 Log.info("Starting POM files analysis");
@@ -64,13 +66,29 @@ public class Main {
             int bMax = Integer.parseInt(args[1]);
             List<String> allArtifacts = allArtifact("allArtifact");
             Log.info("number of artifact: {}", allArtifacts.size());
-            dependencyGraph = (new GraphBuilder()).buildGraphDependency(allArtifacts.subList(bMin, bMax));
+            /*dependencyGraph = (new GraphBuilder()).buildGraphDependency(allArtifacts.subList(bMin, bMax));
             System.out.println(allArtifacts.subList(bMin, bMax));
             dependencyGraph.toJSONObjectIn("mavenGraph_" + System.currentTimeMillis() + ".json");
             Log.info("Starting POM files analysis");
             Stat2 stat = new Stat2(dependencyGraph, "resultCSV/");
             stat.writeGeneralStat(bMin + "-" + bMax);
-            Log.info(dependencyGraph.info());
+            Log.info(dependencyGraph.info());*/
+            PrintWriter pw_R = new PrintWriter("directDependencies.csv", "UTF-8");
+            pw_R.println("Artifact,Dependencies");
+            int counter = 0;
+            for (String artifactAsString : allArtifacts.subList(bMin, bMax)) {
+                Log.info("" + counter++);
+                pw_R.print(artifactAsString + ",");
+                for (Dependency dependency : (new GraphBuilder()).getDirectDependencies(artifactAsString)) {
+                    String dependencyAsString = dependency.getArtifact().getGroupId() + ":"
+                            + dependency.getArtifact().getArtifactId() + ":"
+                            + dependency.getArtifact().getVersion();
+                    pw_R.print(dependencyAsString + ",");
+                }
+                pw_R.println();
+                pw_R.flush();
+            }
+            pw_R.close();
         }
         //renameArtifacts("raw/dependencies.csv", "raw/usages.csv", "raw/renamed_dependencies.csv", "raw/renamed_usages.csv");
 
@@ -100,7 +118,7 @@ public class Main {
             String version;
             String formattedTime;
             for (int index = 0; index < subListsNumber; index++) {
-                partialArtifact = app.partialArtifactInfo((int) (((long) (totalArtifactsNumber * index)) / subListsNumber),
+                partialArtifact = app.partialArtifactInfo((int) (totalArtifactsNumber * index / subListsNumber),
                         Math.min((int) (((long) (totalArtifactsNumber * (index + 1))) / subListsNumber), (int) totalArtifactsNumber));
                 //Log.debug("Storing artifacts from index {} to {}", (totalArtifactsNumber * index) / subListsNumber, Math.min((totalArtifactsNumber * (index + 1)) / subListsNumber, totalArtifactsNumber));
                 String text = "";
@@ -135,7 +153,7 @@ public class Main {
 
     public static void compactArtifacts(String artifactFileName, String outputFileName) throws IOException {
         BufferedReader br = new BufferedReader(new FileReader(artifactFileName));
-        Map<String, Long> timestampByArtifact = new LinkedHashMap<String, Long>();
+        Map<String, Long> timestampByArtifact = new LinkedHashMap<>();
         String line;
         String[] splitLine;
         String groupArtifact;
@@ -186,7 +204,7 @@ public class Main {
         //dependencies
         FileReader fr = new FileReader(dependencyTableFileName);
         BufferedReader br = new BufferedReader(fr);
-        Map<String, String> servicesById = new HashMap<String, String>();
+        Map<String, String> servicesById = new HashMap<>();
         String line;
         String[] splitLine;
         int counter = 0;
@@ -260,7 +278,7 @@ public class Main {
     }
 
     public static List<String> allArtifact(String fileName) throws IOException {
-        List<String> artifacts = new ArrayList<String>();
+        List<String> artifacts = new ArrayList<>();
         File f = new File(fileName);
         BufferedReader br = new BufferedReader(new FileReader(f));
         String line = br.readLine();
@@ -286,16 +304,16 @@ public class Main {
 
     public static void test(MavenDependencyGraph g) throws IOException {
         Map<String, Set<MavenDependencyNode>> tmp = g.dependencyUsedDistribution("org.objectweb.fractal", "fractal-api", false);
-
-        HashSet<String> tmp2 = new HashSet<String>();
+        HashSet<String> tmp2 = new HashSet<>();
         for (String key : tmp.keySet())
-            for (MavenDependencyNode node : tmp.get(key))
-                tmp2.add(node.toString());
-
+            tmp2.addAll(tmp.get(key).stream()
+                    .map(MavenDependencyNode::toString)
+                    .collect(Collectors.toList()));
         FileWriter fw = new FileWriter("test");
         BufferedWriter bw = new BufferedWriter(fw);
-        for (String s : tmp2)
+        for (String s : tmp2) {
             fw.write(s + "\n");
+        }
         bw.close();
     }
 }

@@ -5,8 +5,13 @@ import fr.inria.diversify.maven.ConsoleTransferListener;
 import org.apache.maven.repository.internal.MavenRepositorySystemUtils;
 import org.eclipse.aether.DefaultRepositorySystemSession;
 import org.eclipse.aether.RepositorySystem;
+import org.eclipse.aether.RepositorySystemSession;
 import org.eclipse.aether.repository.LocalRepository;
 import org.eclipse.aether.repository.RemoteRepository;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 
 public class Booter {
     static RepositorySystem system;
@@ -35,6 +40,10 @@ public class Booter {
         // session.setDependencyGraphTransformer( null );
 
         return session;
+    }
+
+    public static List<RemoteRepository> newRepositories(RepositorySystem system, RepositorySystemSession session) {
+        return new ArrayList<RemoteRepository>(Arrays.asList(newCentralRepository()));
     }
 
     public static RemoteRepository newCentralRepository()

@@ -35,6 +35,9 @@
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Various generated files #
+###########################
 resultCSV/**
 raw/**
 result/**
@@ -44,3 +47,5 @@ META-INF/**
 tmpDir/**
 *.idea
 *.json
+allArtifact*
+*.csv
