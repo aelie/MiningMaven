@@ -9,6 +9,9 @@ import fr.inria.diversify.stat.Stat2;
 import fr.inria.diversify.util.Log;
 import org.apache.maven.index.ArtifactInfo;
 import org.apache.maven.index.artifact.Gav;
+import org.codehaus.plexus.PlexusContainerException;
+import org.codehaus.plexus.component.repository.exception.ComponentLookupException;
+import org.codehaus.plexus.util.StringUtils;
 import org.eclipse.aether.graph.Dependency;
 
 import java.io.*;
@@ -27,79 +30,146 @@ public class Main {
     public static boolean mergingVersions = true;
     static long totalArtifactsNumber;
 
+    static String SEPARATOR_ELEMENTS = ";";
+    static String SEPARATOR_ARTIFACTS = ":";
+
     public static void main(String[] args) throws Exception {
+        new File("results/").mkdir();
         Log.set(Log.LEVEL_INFO);
 
         Log.info("Building artifact index");
-        //writeAllArtifactInfo("allArtifact");
+        //writeAllArtifactInfo("results/allArtifact");
         Log.info("Compacting artifact index");
-        //compactArtifacts("allArtifact_timestamped", "allArtifactCompact");
+        //compactArtifacts("results/allArtifact_timestamped", "results/allArtifactCompact");
 
         Log.info("Starting dependency graph build");
         MavenDependencyGraph dependencyGraph;
-        if (args.length < 1) {
+        if (args.length == 0) {
             //Log.info("number of artifact: {}",allArtifact("allArtifact").size());
             //dependencyGraph = (new GraphBuilder()).buildGraphDependency(allArtifact("allArtifact"));
             //dependencyGraph.toJSONObjectIn("mavenGraph_" + System.currentTimeMillis() + ".json");
             int subListsNumber = 10;
             for (int index = 0; index < subListsNumber; index++) {
-                dependencyGraph = (new GraphBuilder()).buildGraphDependency(allArtifact("allArtifact")
+                dependencyGraph = (new GraphBuilder()).buildGraphDependency(allArtifact("results/allArtifact")
                         .subList(
                                 (int) (totalArtifactsNumber * index / subListsNumber),
                                 Math.min(
                                         (int) (totalArtifactsNumber * (index + 1) / subListsNumber),
                                         (int) totalArtifactsNumber)));
-                dependencyGraph.toJSONObjectIn("mavenGraph_" + System.currentTimeMillis() + ".json");
+                dependencyGraph.toJSONObjectIn("results/mavenGraph_" + System.currentTimeMillis() + ".json");
                 Log.info("Starting POM files analysis");
                 Stat2 stat2 = new Stat2(dependencyGraph, "resultCSV/");
                 stat2.writeGeneralStat(String.valueOf(index));
                 Log.info(dependencyGraph.info());
             }
-        } else if (args.length < 2) {
+        } else if (args.length == 1) {
             dependencyGraph = (new GraphBuilder()).forJSONFiles(args[0]);
             Log.info("Starting POM files analysis");
             Stat2 stat = new Stat2(dependencyGraph, "resultCSV/");
             stat.writeGeneralStat("full");
             Log.info(dependencyGraph.info());
-        } else {
-            int bMin = Integer.parseInt(args[0]);
-            int bMax = Integer.parseInt(args[1]);
-            List<String> allArtifacts = allArtifact("allArtifact");
-            Log.info("number of artifact: {}", allArtifacts.size());
-            /*dependencyGraph = (new GraphBuilder()).buildGraphDependency(allArtifacts.subList(bMin, bMax));
-            System.out.println(allArtifacts.subList(bMin, bMax));
-            dependencyGraph.toJSONObjectIn("mavenGraph_" + System.currentTimeMillis() + ".json");
-            Log.info("Starting POM files analysis");
-            Stat2 stat = new Stat2(dependencyGraph, "resultCSV/");
-            stat.writeGeneralStat(bMin + "-" + bMax);
-            Log.info(dependencyGraph.info());*/
-            PrintWriter pw_R = new PrintWriter("directDependencies.csv", "UTF-8");
-            pw_R.println("Artifact,Dependencies");
-            int counter = 0;
-            for (String artifactAsString : allArtifacts.subList(bMin, bMax)) {
-                Log.info("" + counter++);
-                pw_R.print(artifactAsString + ",");
-                for (Dependency dependency : (new GraphBuilder()).getDirectDependencies(artifactAsString)) {
-                    String dependencyAsString = dependency.getArtifact().getGroupId() + ":"
-                            + dependency.getArtifact().getArtifactId() + ":"
-                            + dependency.getArtifact().getVersion();
-                    pw_R.print(dependencyAsString + ",");
+        } else if (args.length == 2) {
+            if (args[0].equalsIgnoreCase("-chart")) {
+                Map<String, Set<String>> usage = new LinkedHashMap<>();
+                Map<String, Set<String>> usageNV = new LinkedHashMap<>();
+                BufferedReader resultsReader = new BufferedReader(new FileReader(args[1]));
+                String line;
+                int lineCounter = 0;
+                while ((line = resultsReader.readLine()) != null) {
+                    if (lineCounter++ % 10000 == 0) System.out.println(lineCounter);
+                    if (!line.equalsIgnoreCase("Artifact" + SEPARATOR_ELEMENTS + "Dependencies")) {
+                        String[] splitted = line.split(SEPARATOR_ELEMENTS);
+                        String[] splittedNV = Arrays.asList(splitted).stream()
+                                .map(artifact -> StringUtils.join(Arrays.copyOfRange(artifact.split(SEPARATOR_ARTIFACTS), 0, (artifact.split(SEPARATOR_ARTIFACTS).length - 1)), SEPARATOR_ARTIFACTS))
+                                .toArray(String[]::new);
+                        String artifact = splitted[0];
+                        String artifactNV = splittedNV[0];
+                        List<String> dependencies = new ArrayList<>();
+                        List<String> dependenciesNV = new ArrayList<>();
+                        if (splitted.length > 1) {
+                            dependencies = Arrays.asList(Arrays.copyOfRange(splitted, 1, splitted.length));
+                            dependenciesNV = Arrays.asList(Arrays.copyOfRange(splittedNV, 1, splittedNV.length));
+                        }
+                        for (String dependency : dependencies) {
+                            if (!usage.containsKey(dependency)) {
+                                usage.put(dependency, new HashSet<>());
+                            }
+                            usage.get(dependency).add(artifact);
+                        }
+                        for (String dependencyNV : dependenciesNV) {
+                            if (dependencyNV.equalsIgnoreCase("")) {
+                                System.out.println(line);
+                            }
+                            if (!usageNV.containsKey(dependencyNV)) {
+                                usageNV.put(dependencyNV, new HashSet<>());
+                            }
+                            usageNV.get(dependencyNV).add(artifactNV);
+                        }
+                    }
                 }
-                pw_R.println();
-                pw_R.flush();
+                PrintWriter pwResult = new PrintWriter("results/usage_" + System.currentTimeMillis() + ".csv", "UTF-8");
+                for (String artifact : usage.keySet()) {
+                    /*if (usage.get(artifact).size() > 100)*/ {
+                        pwResult.print(artifact + SEPARATOR_ELEMENTS + usage.get(artifact).size() + SEPARATOR_ELEMENTS);
+                        /*for (String dependency : usage.get(artifact)) {
+                            pwResult.print(dependency + " ");
+                        }*/
+                        pwResult.println();
+                        pwResult.flush();
+                    }
+                }
+                pwResult.close();
+                PrintWriter pwResultNV = new PrintWriter("results/usage_NV_" + System.currentTimeMillis() + ".csv", "UTF-8");
+                for (String artifactNV : usageNV.keySet()) {
+                    /*if (usageNV.get(artifactNV).size() > 100)*/ {
+                        pwResultNV.print(artifactNV + SEPARATOR_ELEMENTS + usageNV.get(artifactNV).size() + SEPARATOR_ELEMENTS);
+                        /*for (String dependencyNV : usageNV.get(artifactNV)) {
+                            pwResultNV.print(dependencyNV + " ");
+                        }*/
+                        pwResultNV.println();
+                        pwResultNV.flush();
+                    }
+                }
+                pwResultNV.close();
+            } else {
+                int bMin = Integer.parseInt(args[0]);
+                int bMax = Integer.parseInt(args[1]);
+                List<String> allArtifacts = allArtifact("results/allArtifact");
+                Log.info("number of artifact: {}", allArtifacts.size());
+                PrintWriter pw_R = new PrintWriter("results/directDependencies.csv", "UTF-8");
+                PrintWriter pw_C = new PrintWriter("counter", "UTF-8");
+                pw_R.println("Artifact" + SEPARATOR_ELEMENTS + "Dependencies");
+                int counter = bMin;
+                for (String artifactAsString : allArtifacts.subList(bMin, bMax)) {
+                    Log.info("" + counter++);
+                    pw_C.println(counter);
+                    pw_C.flush();
+                    pw_R.print(artifactAsString + SEPARATOR_ELEMENTS);
+                    for (Dependency dependency : (new GraphBuilder()).getDirectDependencies(artifactAsString)) {
+                        String dependencyAsString = dependency.getArtifact().getGroupId() + SEPARATOR_ARTIFACTS
+                                + dependency.getArtifact().getArtifactId() + SEPARATOR_ARTIFACTS
+                                + dependency.getArtifact().getVersion();
+                        pw_R.print(dependencyAsString + SEPARATOR_ELEMENTS);
+                    }
+                    pw_R.println();
+                    pw_R.flush();
+                }
+                pw_R.close();
+                pw_C.close();
             }
-            pw_R.close();
         }
-        //renameArtifacts("raw/dependencies.csv", "raw/usages.csv", "raw/renamed_dependencies.csv", "raw/renamed_usages.csv");
+    }
 
+    public static void updateDependencies() {
+        CentralIndex app = null;
+        try {
+            app = new CentralIndex();
+            if (app.buildCentralIndex() == CentralIndex.PARTIAL_UPDATE) {
 
-        //writeDot(dependencyGraph);
-        //writeStat(dependencyGraph);
-        //test(dependencyGraph);
-        //Log.info("Starting POM files analysis");
-        //Stat2 stat = new Stat2(dependencyGraph,"resultCSV/");
-        //stat.writeGeneralStat();
-        //Log.info(dependencyGraph.info());*/
+            }
+        } catch (PlexusContainerException | IOException | ComponentLookupException e) {
+            e.printStackTrace();
+        }
     }
 
     public static void writeAllArtifactInfo(String fileName) {
@@ -130,8 +200,8 @@ public class Main {
                         groupId = gav.getGroupId();
                         artifactId = gav.getArtifactId();
                         version = gav.getVersion();
-                        text += groupId + ":" + artifactId + ":" + version + System.getProperty("line.separator");
-                        text_ts += groupId + ":" + artifactId + ":" + version + ":" + formattedTime + System.getProperty("line.separator");
+                        text += groupId + SEPARATOR_ARTIFACTS + artifactId + SEPARATOR_ARTIFACTS + version + System.getProperty("line.separator");
+                        text_ts += groupId + SEPARATOR_ARTIFACTS + artifactId + SEPARATOR_ARTIFACTS + version + SEPARATOR_ARTIFACTS + formattedTime + System.getProperty("line.separator");
                         count++;
                     } catch (Exception ex) {
                         error++;
@@ -162,7 +232,7 @@ public class Main {
         int counter = 1;
         while ((line = br.readLine()) != null) {
             try {
-                splitLine = line.split(":");
+                splitLine = line.split(SEPARATOR_ARTIFACTS);
                 groupArtifact = line.substring(0, line.length() - splitLine[splitLine.length - 1].length());
                 cal.setTime(sdf.parse(splitLine[splitLine.length - 1]));
                 if (timestampByArtifact.keySet().contains(groupArtifact)) {

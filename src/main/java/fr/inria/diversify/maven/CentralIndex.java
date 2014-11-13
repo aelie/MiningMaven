@@ -31,6 +31,10 @@ import java.util.List;
  */
 public class CentralIndex {
 
+    public static final int FULL_UPDATE = 1;
+    public static final int PARTIAL_UPDATE = 1;
+    public static final int NO_UPDATE = 1;
+
     private final PlexusContainer plexusContainer;
 
     private final Indexer indexer;
@@ -57,7 +61,7 @@ public class CentralIndex {
 
     }
 
-    public void buildCentralIndex() throws ComponentLookupException, IOException {
+    public int buildCentralIndex() throws ComponentLookupException, IOException {
         File centralLocalCache = new File("target/central-cache");
         File centralIndexDir = new File("target/central-index");
 
@@ -100,11 +104,14 @@ public class CentralIndex {
         IndexUpdateResult updateResult = indexUpdater.fetchAndUpdateIndex(updateRequest);
         if (updateResult.isFullUpdate()) {
             System.out.println("Full update happened!");
+            return FULL_UPDATE;
         } else if (updateResult.getTimestamp().equals(centralContextCurrentTimestamp)) {
             System.out.println("No update needed, index is up to date!");
+            return NO_UPDATE;
         } else {
             System.out.println("Incremental update happened, change covered " + centralContextCurrentTimestamp
                     + " - " + updateResult.getTimestamp() + " period.");
+            return PARTIAL_UPDATE;
         }
     }
 
@@ -113,14 +120,13 @@ public class CentralIndex {
     }
 
     public List<ArtifactInfo> partialArtifactInfo(int startPosition, int endPosition) throws IOException {
-        List<ArtifactInfo> list = new ArrayList<ArtifactInfo>();
+        List<ArtifactInfo> list = new ArrayList<>();
         final IndexSearcher searcher = centralContext.acquireIndexSearcher();
         try {
             final IndexReader ir = searcher.getIndexReader();
             for (int i = startPosition; i < endPosition; i++) {
                 if (!ir.isDeleted(i)) {
-                    final Document doc = ir.document(i);
-                    list.add(IndexUtils.constructArtifactInfo(doc, centralContext));
+                    list.add(IndexUtils.constructArtifactInfo(ir.document(i), centralContext));
                 }
             }
         } finally {

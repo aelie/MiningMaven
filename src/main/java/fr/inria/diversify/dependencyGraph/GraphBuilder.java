@@ -48,7 +48,7 @@ public class GraphBuilder {
     public List<Dependency> getDirectDependencies(String artifactAsString) {
         RepositorySystem system = Booter.newRepositorySystem();
         RepositorySystemSession session = Booter.newRepositorySystemSession(system);
-        Artifact artifact = new DefaultArtifact(artifactAsString /*"org.eclipse.aether:aether-impl:0.9.0.M3"*/);
+        Artifact artifact = new DefaultArtifact(artifactAsString);
         ArtifactDescriptorRequest descriptorRequest = new ArtifactDescriptorRequest();
         descriptorRequest.setArtifact(artifact);
         descriptorRequest.setRepositories(Booter.newRepositories(system, session));
