@@ -44,7 +44,7 @@ public class Main {
                 Log.info("-start value       start index of the artifact list for dependency calculation" + System.getProperty("line.separator")
                         + "-end value         end index of the artifact list for dependency calculation" + System.getProperty("line.separator")
                         + "-total             calculate all dependencies" + System.getProperty("line.separator")
-                        + "-usages [YYYYMMDD] calculate artifact usages at the specified date" + System.getProperty("line.separator")
+                        + "-usage [YYYYMMDD]  calculate artifact usages at the specified date" + System.getProperty("line.separator")
                         + "-nobuild           skip artifact index build");
             }
             if (args[i].equalsIgnoreCase("-start") && i < args.length - 1) {
@@ -56,7 +56,7 @@ public class Main {
             if (args[i].equalsIgnoreCase("-total")) {
                 total = true;
             }
-            if (args[i].equalsIgnoreCase("-usages")) {
+            if (args[i].equalsIgnoreCase("-usage")) {
                 getUsages = true;
                 try {
                     usageDate = args[i + 1];
