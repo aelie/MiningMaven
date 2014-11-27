@@ -4,12 +4,9 @@ import fr.inria.diversify.dependencyGraph.GraphBuilder;
 import fr.inria.diversify.dependencyGraph.MavenDependencyGraph;
 import fr.inria.diversify.dependencyGraph.MavenDependencyNode;
 import fr.inria.diversify.maven.CentralIndex;
-import fr.inria.diversify.stat.Stat;
 import fr.inria.diversify.util.Log;
 import org.apache.maven.index.ArtifactInfo;
 import org.apache.maven.index.artifact.Gav;
-import org.codehaus.plexus.PlexusContainerException;
-import org.codehaus.plexus.component.repository.exception.ComponentLookupException;
 import org.codehaus.plexus.util.StringUtils;
 import org.eclipse.aether.graph.Dependency;
 
@@ -28,7 +25,7 @@ public class Main {
 
     public static boolean mergingVersions = true;
     static long totalArtifactsNumber;
-    static String dateAsString;
+    static String currentDateAsString;
 
     static String SEPARATOR_ELEMENTS = ";";
     static String SEPARATOR_ARTIFACTS = ":";
@@ -38,15 +35,16 @@ public class Main {
         int parsedEndIndex = -1;
         boolean total = false;
         boolean getUsages = false;
+        String usageDate = null;
         String dependencyFileName = null;
         boolean rebuild = true;
-        dateAsString = dateToString(System.currentTimeMillis());
+        currentDateAsString = timestampToStringDate(System.currentTimeMillis(), true);
         for (int i = 0; i < args.length; i++) {
             if (args[i].equalsIgnoreCase("-help")) {
                 Log.info("-start value       start index of the artifact list for dependency calculation" + System.getProperty("line.separator")
                         + "-end value         end index of the artifact list for dependency calculation" + System.getProperty("line.separator")
                         + "-total             calculate all dependencies" + System.getProperty("line.separator")
-                        + "-usages            calculate artifact usages" + System.getProperty("line.separator")
+                        + "-usages [YYYYMMDD] calculate artifact usages at the specified date" + System.getProperty("line.separator")
                         + "-nobuild           skip artifact index build");
             }
             if (args[i].equalsIgnoreCase("-start") && i < args.length - 1) {
@@ -60,6 +58,12 @@ public class Main {
             }
             if (args[i].equalsIgnoreCase("-usages")) {
                 getUsages = true;
+                try {
+                    usageDate = args[i + 1];
+                    Integer.parseInt(usageDate);
+                } catch(Exception ex) {
+                    usageDate = null;
+                }
             }
             if (args[i].equalsIgnoreCase("-dependency") && i < args.length - 1) {
                 dependencyFileName = args[i + 1];
@@ -107,15 +111,22 @@ public class Main {
             buildDependencyFile(artifactsMap, startIndex, endIndex);
         }
         if (getUsages) {
-            Log.info("Starting usage graph build");
-            if (dependencyFileName == null) {
-                dependencyFileName = "results/directDependencies_" + dateAsString + ".csv";
+            long timestamp;
+            if(usageDate != null) {
+                timestamp = stringDateToTimestamp(usageDate);
+                Log.info("Starting usage graph build at date " + timestamp);
+            } else {
+                Log.info("Starting usage graph build at today");
+                timestamp = Calendar.getInstance().getTimeInMillis();
             }
-            buildUsagesFile(dependencyFileName, artifactsMap);
+            if (dependencyFileName == null) {
+                dependencyFileName = "results/directDependencies_" + currentDateAsString + ".csv";
+            }
+            buildUsagesFile(dependencyFileName, artifactsMap, timestamp);
         }
     }
 
-    public static void buildUsagesFile(String inputFile, Map<String, String> allArtifacts) throws IOException {
+    public static void buildUsagesFile(String inputFile, Map<String, String> allArtifacts, long timestamp) throws IOException {
         Map<String, Set<String>> usage = new LinkedHashMap<>();
         Map<String, Set<String>> usageNV = new LinkedHashMap<>();
         BufferedReader resultsReader = new BufferedReader(new FileReader(inputFile));
@@ -126,46 +137,50 @@ public class Main {
             if (!line.equalsIgnoreCase("Artifact" + SEPARATOR_ELEMENTS + "Dependencies")) {
                 String[] splitted = line.split(SEPARATOR_ELEMENTS);
                 String artifact = splitted[0];
-                List<String> dependencies = new ArrayList<>();
-                List<String> dependenciesNV = new ArrayList<>();
-                if (splitted.length > 1) {
-                    dependencies = Arrays.asList(Arrays.copyOfRange(splitted, 2, splitted.length));
-                    dependenciesNV = Arrays.asList(Arrays.copyOfRange(splitted, 2, splitted.length)).stream()
-                            .map(dependency -> StringUtils.join(Arrays.copyOfRange(dependency.split(SEPARATOR_ARTIFACTS), 0, (dependency.split(SEPARATOR_ARTIFACTS).length - 1)), SEPARATOR_ARTIFACTS))
-                            .collect(Collectors.toList());
-                }
-                for (String dependency : dependencies) {
-                    if (!usage.containsKey(dependency)) {
-                        usage.put(dependency, new HashSet<>());
+                if(stringDateToTimestamp(allArtifacts.get(artifact)) < timestamp) {
+                    List<String> dependencies = new ArrayList<>();
+                    List<String> dependenciesNV = new ArrayList<>();
+                    if (splitted.length > 1) {
+                        dependencies = Arrays.asList(Arrays.copyOfRange(splitted, 2, splitted.length));
+                        dependenciesNV = Arrays.asList(Arrays.copyOfRange(splitted, 2, splitted.length)).stream()
+                                .map(dependency -> StringUtils.join(Arrays.copyOfRange(dependency.split(SEPARATOR_ARTIFACTS), 0, (dependency.split(SEPARATOR_ARTIFACTS).length - 1)), SEPARATOR_ARTIFACTS))
+                                .collect(Collectors.toList());
                     }
-                    usage.get(dependency).add(artifact);
-                }
-                for (String dependencyNV : dependenciesNV) {
-                    if (dependencyNV.equalsIgnoreCase("")) {
-                        System.out.println("ERROR");
+                    for (String dependency : dependencies) {
+                        if (!usage.containsKey(dependency)) {
+                            usage.put(dependency, new HashSet<>());
+                        }
+                        usage.get(dependency).add(artifact);
                     }
-                    if (!usageNV.containsKey(dependencyNV)) {
-                        usageNV.put(dependencyNV, new HashSet<>());
+                    for (String dependencyNV : dependenciesNV) {
+                        if (dependencyNV.equalsIgnoreCase("")) {
+                            System.out.println("ERROR");
+                        }
+                        if (!usageNV.containsKey(dependencyNV)) {
+                            usageNV.put(dependencyNV, new HashSet<>());
+                        }
+                        usageNV.get(dependencyNV).add(artifact);
                     }
-                    usageNV.get(dependencyNV).add(artifact);
+                } else {
+                    Log.info("Skipping " + artifact + "(" + allArtifacts.get(artifact) + "), after " + timestampToStringDate(timestamp, false));
                 }
             }
         }
-        PrintWriter pwResult = new PrintWriter("results/usage_" + dateAsString + ".csv", "UTF-8");
+        PrintWriter pwResult = new PrintWriter("results/usage_" + currentDateAsString + ".csv", "UTF-8");
         for (String artifact : usage.keySet()) {
             pwResult.print(artifact + SEPARATOR_ELEMENTS + usage.get(artifact).size() + SEPARATOR_ELEMENTS);
             pwResult.println();
             pwResult.flush();
         }
         pwResult.close();
-        PrintWriter pwResultNV = new PrintWriter("results/usage_NV_" + dateAsString + ".csv", "UTF-8");
+        PrintWriter pwResultNV = new PrintWriter("results/usage_NV_" + currentDateAsString + ".csv", "UTF-8");
         for (String artifactNV : usageNV.keySet()) {
             pwResultNV.print(artifactNV + SEPARATOR_ELEMENTS + usageNV.get(artifactNV).size() + SEPARATOR_ELEMENTS);
             pwResultNV.println();
             pwResultNV.flush();
         }
         pwResultNV.close();
-        PrintWriter pwResult_TS = new PrintWriter("results/usage_TS_" + dateAsString + ".csv", "UTF-8");
+        PrintWriter pwResult_TS = new PrintWriter("results/usage_TS_" + currentDateAsString + ".csv", "UTF-8");
         for (String artifact : usage.keySet()) {
             pwResult_TS.print(artifact + SEPARATOR_ELEMENTS + usage.get(artifact).size() + SEPARATOR_ELEMENTS);
             for(String user : usage.get(artifact)) {
@@ -175,7 +190,7 @@ public class Main {
             pwResult_TS.flush();
         }
         pwResult_TS.close();
-        PrintWriter pwResultNV_TS = new PrintWriter("results/usage_NV_TS_" + dateAsString + ".csv", "UTF-8");
+        PrintWriter pwResultNV_TS = new PrintWriter("results/usage_NV_TS_" + currentDateAsString + ".csv", "UTF-8");
         for (String artifactNV : usageNV.keySet()) {
             pwResultNV_TS.print(artifactNV + SEPARATOR_ELEMENTS + usageNV.get(artifactNV).size() + SEPARATOR_ELEMENTS);
             for(String user : usageNV.get(artifactNV)) {
@@ -188,7 +203,7 @@ public class Main {
     }
 
     public static void buildDependencyFile(Map<String, String> allArtifacts, int startIndex, int endIndex) throws FileNotFoundException, UnsupportedEncodingException {
-        PrintWriter pw_R = new PrintWriter("results/directDependencies_" + dateAsString + ".csv", "UTF-8");
+        PrintWriter pw_R = new PrintWriter("results/directDependencies_" + currentDateAsString + ".csv", "UTF-8");
         PrintWriter pw_C = new PrintWriter("counter", "UTF-8");
         pw_R.println("Artifact" + SEPARATOR_ELEMENTS + "Dependencies");
         int counter = startIndex;
@@ -240,7 +255,7 @@ public class Main {
                 for (ArtifactInfo ai : artifactInfoList) {
                     try {
                         gav = ai.calculateGav();
-                        formattedTime = timestampToString(ai.lastModified);
+                        formattedTime = timestampToStringDate(ai.lastModified, false);
                         groupId = gav.getGroupId();
                         artifactId = gav.getArtifactId();
                         version = gav.getVersion();
@@ -302,28 +317,49 @@ public class Main {
         br.close();
         BufferedWriter bw = new BufferedWriter(new FileWriter(outputFileName));
         for (String artifact : timestampByArtifact.keySet()) {
-            bw.write(artifact + timestampToString(timestampByArtifact.get(artifact)) + System.getProperty("line.separator"));
+            bw.write(artifact + timestampToStringDate(timestampByArtifact.get(artifact), false) + System.getProperty("line.separator"));
         }
         bw.close();
     }
 
-    public static String timestampToString(long timestamp) {
+    public static String timestampToStringDate(long timestamp, boolean formatShort) {
         Calendar cal = Calendar.getInstance();
         cal.setTimeInMillis(timestamp);
-        return (cal.get(Calendar.DAY_OF_MONTH) <= 9 ? "0" + cal.get(Calendar.DAY_OF_MONTH) : cal.get(Calendar.DAY_OF_MONTH)) + "-" +
-                (cal.get(Calendar.MONTH) + 1 <= 9 ? "0" + (cal.get(Calendar.MONTH) + 1) : (cal.get(Calendar.MONTH) + 1)) + "-" +
-                cal.get(Calendar.YEAR) + "T" +
-                (cal.get(Calendar.HOUR_OF_DAY) <= 9 ? "0" + cal.get(Calendar.HOUR_OF_DAY) : cal.get(Calendar.HOUR_OF_DAY)) + "h" +
-                (cal.get(Calendar.MINUTE) <= 9 ? "0" + cal.get(Calendar.MINUTE) : cal.get(Calendar.MINUTE)) + "m" +
-                (cal.get(Calendar.SECOND) <= 9 ? "0" + cal.get(Calendar.SECOND) : cal.get(Calendar.SECOND)) + "s";
+        if(formatShort) {
+            return "" + cal.get(Calendar.YEAR) +
+                    (cal.get(Calendar.MONTH) + 1 <= 9 ? "0" + (cal.get(Calendar.MONTH) + 1) : (cal.get(Calendar.MONTH) + 1)) +
+                    (cal.get(Calendar.DAY_OF_MONTH) <= 9 ? "0" + cal.get(Calendar.DAY_OF_MONTH) : cal.get(Calendar.DAY_OF_MONTH));
+        } else {
+            return (cal.get(Calendar.DAY_OF_MONTH) <= 9 ? "0" + cal.get(Calendar.DAY_OF_MONTH) : cal.get(Calendar.DAY_OF_MONTH)) + "-" +
+                    (cal.get(Calendar.MONTH) + 1 <= 9 ? "0" + (cal.get(Calendar.MONTH) + 1) : (cal.get(Calendar.MONTH) + 1)) + "-" +
+                    cal.get(Calendar.YEAR) + "T" +
+                    (cal.get(Calendar.HOUR_OF_DAY) <= 9 ? "0" + cal.get(Calendar.HOUR_OF_DAY) : cal.get(Calendar.HOUR_OF_DAY)) + "h" +
+                    (cal.get(Calendar.MINUTE) <= 9 ? "0" + cal.get(Calendar.MINUTE) : cal.get(Calendar.MINUTE)) + "m" +
+                    (cal.get(Calendar.SECOND) <= 9 ? "0" + cal.get(Calendar.SECOND) : cal.get(Calendar.SECOND)) + "s";
+        }
     }
 
-    public static String dateToString(long timestamp) {
+    public static long stringDateToTimestamp(String date) {
         Calendar cal = Calendar.getInstance();
-        cal.setTimeInMillis(timestamp);
-        return "" + cal.get(Calendar.YEAR) +
-                (cal.get(Calendar.MONTH) + 1 <= 9 ? "0" + (cal.get(Calendar.MONTH) + 1) : (cal.get(Calendar.MONTH) + 1)) +
-                (cal.get(Calendar.DAY_OF_MONTH) <= 9 ? "0" + cal.get(Calendar.DAY_OF_MONTH) : cal.get(Calendar.DAY_OF_MONTH));
+        if(date.length() == 8) {
+            cal.set(Calendar.HOUR_OF_DAY, 0);
+            cal.set(Calendar.MINUTE, 0);
+            cal.set(Calendar.SECOND, 0);
+            cal.set(Calendar.MILLISECOND, 0);
+            cal.set(Calendar.YEAR, Integer.parseInt(date.substring(0, 4)));
+            cal.set(Calendar.MONTH, Integer.parseInt(date.substring(4, 6)) - 1);
+            cal.set(Calendar.DAY_OF_MONTH, Integer.parseInt(date.substring(6, 8)));
+            return cal.getTimeInMillis();
+        } else {
+            SimpleDateFormat sdf = new SimpleDateFormat("dd'-'MM'-'yyyy'T'HH'h'mm'm'ss's'");
+            try {
+                cal.setTime(sdf.parse(date));
+                return cal.getTimeInMillis();
+            } catch (ParseException e) {
+                e.printStackTrace();
+                return -1;
+            }
+        }
     }
 
     public static void renameArtifacts(String dependencyTableFileName, String usageTableFileName,
